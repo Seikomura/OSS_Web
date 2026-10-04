@@ -37,7 +37,7 @@ export async function createSeed(){const customers=[];for(const c of [
   {id:'c1',company:'บริษัท สยาม อิเล็คทริค จำกัด',contact:'คุณกานต์',email:'contact@siam-electric.example',phone:'02-000-0101',username:'siam'},
   {id:'c2',company:'บริษัท นอร์ทสตาร์ อินดัสทรี จำกัด',contact:'คุณนภา',email:'contact@northstar.example',phone:'02-000-0202',username:'northstar'},
   {id:'c3',company:'บริษัท เอเชีย โปรดักส์ จำกัด',contact:'คุณเมธา',email:'contact@asia-products.example',phone:'02-000-0303',username:'asia'}
-]){customers.push({...c,active:true,password:await passwordRecord('Demo1234')});}
+]){customers.push({...c,active:true,password:await passwordRecord('Demo1234'),demoPassword:'Demo1234'});}
 return {version:1,admin:{password:await passwordRecord('Admin1234')},customers,jobs:[
   seedJob('j1','c1','สายไฟฟ้าหุ้มฉนวน PVC','มอ.3','มอก.11 เล่ม 3',['S1','S2','S3','S4','A1','B1','B2'],['A2','B3'],['A3','B4']),
   seedJob('j2','c1','สายไฟฟ้าสำหรับเครื่องใช้ไฟฟ้า','มอ.1','มอก.11 เล่ม 5',['S1'],['S2'],[]),

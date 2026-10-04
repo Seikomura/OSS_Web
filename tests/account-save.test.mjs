@@ -12,7 +12,7 @@ const source=await readFile(resolve(sourceRoot,'dist/app.js'),'utf8');
 const seed=await data.createSeed();
 
 async function waitFor(check,message){const end=Date.now()+3000;while(Date.now()<end){if(check())return;await new Promise(r=>setTimeout(r,15));}assert.fail(message);}
-function boot(){
+function boot(initial=seed,session={id:'admin',role:'admin'}){
   const dom=new JSDOM('<div id="app"></div><div id="toast"></div>',{url:'https://demo.example',runScripts:'outside-only',pretendToBeVisual:true});
   const {window}=dom;
   Object.assign(window,data,{structuredClone,TextEncoder});
@@ -27,8 +27,8 @@ function boot(){
     get(){return this.elements.namedItem('id') || this.getAttribute('id');},
     set(value){this.setAttribute('id',value);},configurable:true
   });
-  window.localStorage.setItem(data.STORAGE_KEY,JSON.stringify(seed));
-  window.sessionStorage.setItem('oss-demo-session',JSON.stringify({id:'admin',role:'admin'}));
+  window.localStorage.setItem(data.STORAGE_KEY,JSON.stringify(initial));
+  window.sessionStorage.setItem('oss-demo-session',JSON.stringify(session));
   window.eval(source.replace(/^import[^\n]+\n/,''));
   return {dom,window,document:window.document,stored:()=>JSON.parse(window.localStorage.getItem(data.STORAGE_KEY))};
 }
@@ -44,6 +44,7 @@ test('adding a customer persists the account and its usable password',async()=>{
     await waitFor(()=>app.stored().customers.some(c=>c.username==='regression_customer'),'Save did not create the customer account');
     const customer=app.stored().customers.find(c=>c.username==='regression_customer');
     assert.equal(await data.verifyPassword('TestPass1234',customer.password),true);
+    assert.equal(customer.demoPassword,'TestPass1234');
     assert.equal(app.document.querySelector('dialog'),null);
   }finally{app.window.close();}
 });
@@ -57,7 +58,19 @@ test('editing a password persists it, rejects the old password, and retains jobs
     const saved=app.stored();const customer=saved.customers.find(c=>c.id==='c1');
     assert.equal(await data.verifyPassword('ChangedPass1234',customer.password),true);
     assert.equal(await data.verifyPassword('Demo1234',customer.password),false);
+    assert.equal(customer.demoPassword,'ChangedPass1234');
     assert.deepEqual(saved.jobs,seed.jobs);
+    const reopened=boot(saved);try{
+      reopened.document.querySelector('[data-route="customers"]').click();
+      reopened.document.querySelector('[data-action="edit-customer"][data-id="c1"]').click();
+      const current=reopened.document.querySelector('#customer-latest-password');
+      assert.equal(current.value,'ChangedPass1234');assert.equal(current.readOnly,true);
+      assert.equal(current.type,'password');assert.equal(current.hasAttribute('name'),false);
+      assert.equal(reopened.document.querySelector('[name="password"]').value,'');
+      const toggle=reopened.document.querySelector('[data-target="customer-latest-password"]');
+      toggle.click();assert.equal(current.type,'text');assert.equal(toggle.textContent,'ซ่อน');
+      toggle.click();assert.equal(current.type,'password');
+    }finally{reopened.window.close();}
   }finally{app.window.close();}
 });
 
@@ -67,6 +80,33 @@ test('saving details without a new password preserves the old password',async()=
     field(app.document,'contact','Updated contact');submit(app.window,app.document);
     await waitFor(()=>app.stored().customers.find(c=>c.id==='c1').contact==='Updated contact','Save did not persist customer details');
     assert.deepEqual(app.stored().customers.find(c=>c.id==='c1').password,seed.customers.find(c=>c.id==='c1').password);
+    assert.equal(app.stored().customers.find(c=>c.id==='c1').demoPassword,'Demo1234');
+  }finally{app.window.close();}
+});
+
+test('legacy hashes are preserved and only verified default demo passwords are displayed',async()=>{
+  const legacy=structuredClone(seed);for(const c of legacy.customers)delete c.demoPassword;
+  legacy.customers[0].password=await data.passwordRecord('LegacyPass1234');
+  const app=boot(legacy);try{
+    app.document.querySelector('[data-route="customers"]').click();
+    app.document.querySelector('[data-action="edit-customer"][data-id="c1"]').click();
+    await waitFor(()=>app.document.querySelector('dialog'),'Legacy editor did not open');
+    assert.equal(app.document.querySelector('#customer-latest-password'),null);
+    assert.match(app.document.querySelector('dialog').textContent,/ย้อนกลับไม่ได้/);
+    assert.deepEqual(app.stored(),legacy);
+    app.document.querySelector('[data-action="close-modal"]').click();
+    app.document.querySelector('[data-action="edit-customer"][data-id="c2"]').click();
+    await waitFor(()=>app.document.querySelector('#customer-latest-password'),'Default legacy password was not resolved');
+    assert.equal(app.document.querySelector('#customer-latest-password').value,'Demo1234');
+    assert.deepEqual(app.stored(),legacy);
+  }finally{app.window.close();}
+});
+
+test('customer view cannot open the admin password editor',()=>{
+  const app=boot(seed,{id:'c1',role:'customer'});try{
+    assert.equal(app.document.querySelector('[data-route="customers"]'),null);
+    assert.equal(app.document.querySelector('#customer-latest-password'),null);
+    assert.equal(app.document.body.textContent.includes('Demo1234'),false);
   }finally{app.window.close();}
 });
 

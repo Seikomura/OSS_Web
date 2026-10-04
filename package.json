@@ -1,0 +1,14 @@
+{
+  "name": "oss-client-portal-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OSS customer work tracking design and workflow demo",
+  "scripts": {
+    "test": "node tests/account-save.test.mjs",
+    "test:data": "node tests/data.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "30.1.1"
+  }
+}

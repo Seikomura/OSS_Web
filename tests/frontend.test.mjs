@@ -35,6 +35,7 @@ function boot(request) {
   });
   Object.assign(dom.window, data, { request, structuredClone });
   dom.window.scrollTo = () => {};
+  Object.defineProperty(dom.window.document, "fonts", {value:{ready:Promise.resolve()}});
   dom.window.HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute("open", "");
   };
@@ -60,6 +61,19 @@ function submit(dom) {
       new dom.window.Event("submit", { bubbles: true, cancelable: true }),
     );
 }
+
+test("login page stays usable when fonts load and the window resizes before authentication", async () => {
+  const dom=boot(async()=>{throw Object.assign(new Error('Login required'),{status:401});});
+  const errors=[];
+  dom.window.addEventListener('error',event=>{errors.push(event.error);event.preventDefault();});
+  try{
+    await until(()=>dom.window.document.querySelector('#login-form'));
+    dom.window.dispatchEvent(new dom.window.Event('resize'));
+    await new Promise(resolve=>setTimeout(resolve,40));
+    assert.deepEqual(errors,[]);
+    assert.equal(dom.window.document.querySelector('#login-form button[type="submit"]').disabled,false);
+  }finally{dom.window.close();}
+});
 
 test("account forms await server save despite id control collision and keep errors visible", async () => {
   const state = structuredClone(seed),

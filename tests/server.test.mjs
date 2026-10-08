@@ -131,3 +131,16 @@ test("invalid dates and password values return actionable errors", () => {
     PortalError,
   );
 });
+
+test("admin management operations reject customers before privileged calls", async () => {
+  for (const op of ["admin-save", "admin-active"]) {
+    let calls = 0;
+    await assert.rejects(
+      execute(op, {}, { id: "client", role: "customer" }, {}, () => {
+        calls++;
+      }),
+      (e) => e.status === 403,
+    );
+    assert.equal(calls, 0);
+  }
+});

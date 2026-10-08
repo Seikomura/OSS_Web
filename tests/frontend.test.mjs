@@ -35,7 +35,9 @@ function boot(request) {
   });
   Object.assign(dom.window, data, { request, structuredClone });
   dom.window.scrollTo = () => {};
-  Object.defineProperty(dom.window.document, "fonts", {value:{ready:Promise.resolve()}});
+  Object.defineProperty(dom.window.document, "fonts", {
+    value: { ready: Promise.resolve() },
+  });
   dom.window.HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute("open", "");
   };
@@ -48,7 +50,7 @@ function boot(request) {
     },
     configurable: true,
   });
-  dom.window.eval(source.replace(/^import[^\n]+\n/gm, ""));
+  dom.window.eval(source.replace(/^import[\s\S]*?;\s*/gm, ""));
   return dom;
 }
 function edit(dom, name, value) {
@@ -63,16 +65,27 @@ function submit(dom) {
 }
 
 test("login page stays usable when fonts load and the window resizes before authentication", async () => {
-  const dom=boot(async()=>{throw Object.assign(new Error('Login required'),{status:401});});
-  const errors=[];
-  dom.window.addEventListener('error',event=>{errors.push(event.error);event.preventDefault();});
-  try{
-    await until(()=>dom.window.document.querySelector('#login-form'));
-    dom.window.dispatchEvent(new dom.window.Event('resize'));
-    await new Promise(resolve=>setTimeout(resolve,40));
-    assert.deepEqual(errors,[]);
-    assert.equal(dom.window.document.querySelector('#login-form button[type="submit"]').disabled,false);
-  }finally{dom.window.close();}
+  const dom = boot(async () => {
+    throw Object.assign(new Error("Login required"), { status: 401 });
+  });
+  const errors = [];
+  dom.window.addEventListener("error", (event) => {
+    errors.push(event.error);
+    event.preventDefault();
+  });
+  try {
+    await until(() => dom.window.document.querySelector("#login-form"));
+    dom.window.dispatchEvent(new dom.window.Event("resize"));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.deepEqual(errors, []);
+    assert.equal(
+      dom.window.document.querySelector('#login-form button[type="submit"]')
+        .disabled,
+      false,
+    );
+  } finally {
+    dom.window.close();
+  }
 });
 
 test("account forms await server save despite id control collision and keep errors visible", async () => {
@@ -128,6 +141,55 @@ test("account forms await server save despite id control collision and keep erro
       false,
     );
     assert.equal(state.customers.length, 2);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("admin forms save new users, reset passwords, and keep self-disable unavailable", async () => {
+  const state = {
+    ...structuredClone(seed),
+    admins: [
+      { id: "admin", username: "admin", company: "Owner", active: true },
+    ],
+  };
+  const calls = [];
+  const dom = boot(async (op, input) => {
+    if (op === "state") return structuredClone(state);
+    calls.push({ op, input });
+    if (input.id) state.admins[0].company = input.company;
+    else
+      state.admins.push({
+        id: "second",
+        username: input.username,
+        company: input.company,
+        active: true,
+      });
+    return structuredClone(state);
+  });
+  try {
+    const d = dom.window.document;
+    await until(() => d.querySelector('[data-route="admins"]'));
+    d.querySelector('[data-route="admins"]').click();
+    assert.equal(
+      d.querySelector('[data-action="toggle-admin"]').disabled,
+      true,
+    );
+    d.querySelector('[data-action="new-admin"]').click();
+    edit(dom, "company", "Operations");
+    edit(dom, "username", "ops");
+    edit(dom, "password", "New admin password123");
+    submit(dom);
+    await until(() => !d.querySelector("dialog"));
+    assert.equal(calls[0].op, "admin-save");
+    assert.equal(state.admins.length, 2);
+    d.querySelector('[data-action="edit-admin"]').click();
+    assert.equal(d.querySelector('[name="username"]').readOnly, true);
+    edit(dom, "password", "Reset admin password123");
+    submit(dom);
+    await until(() => !d.querySelector("dialog"));
+    assert.equal(calls[1].input.id, "admin");
+    assert.equal(calls[1].input.password, "Reset admin password123");
   } finally {
     dom.window.close();
   }

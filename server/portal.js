@@ -56,10 +56,21 @@ export async function stateFor(client, profile) {
   );
   const visibleCustomers = new Set(profiles.map((c) => c.id));
   return {
+    admins:
+      profile.role === "admin"
+        ? checked(
+            await client
+              .from("oss_profiles")
+              .select(PROFILE_FIELDS)
+              .eq("role", "admin")
+              .is("archived_at", null)
+              .order("company"),
+          )
+        : [],
     user: {
       id: profile.id,
       role: profile.role,
-      name: profile.role === "admin" ? "Admin" : profile.company,
+      name: profile.company,
     },
     customers: profiles,
     jobs: jobs
@@ -146,6 +157,75 @@ export async function saveAccount(service, input) {
     throw new PortalError("อัปเดตบัญชีไม่สำเร็จ ข้อมูลเดิมยังคงอยู่", 502);
   }
 }
+export async function saveAdmin(service, input) {
+  const name = text(input.company, 160, true);
+  const password = newPassword(input.password || "", !input.id);
+  if (input.id) {
+    const id = uuid(input.id);
+    const old = checked(
+      await service
+        .from("oss_profiles")
+        .select(PROFILE_FIELDS)
+        .eq("id", id)
+        .eq("role", "admin")
+        .is("archived_at", null)
+        .maybeSingle(),
+    );
+    if (!old) throw new PortalError("ไม่พบบัญชีผู้ดูแลระบบ", 404);
+    // Existing usernames and privileges are immutable in this operation.
+    checked(
+      await service.from("oss_profiles").update({ company: name }).eq("id", id),
+    );
+    if (password) {
+      const updated = await service.auth.admin.updateUserById(id, { password });
+      if (updated.error) {
+        const restored = await service
+          .from("oss_profiles")
+          .update({ company: old.company })
+          .eq("id", id);
+        throw new PortalError(
+          restored.error
+            ? "ชื่ออัปเดตแล้วแต่ตั้งรหัสผ่านไม่สำเร็จ กรุณาตรวจสอบบัญชี"
+            : "ตั้งรหัสผ่านใหม่ไม่สำเร็จ ข้อมูลเดิมยังคงอยู่",
+          502,
+        );
+      }
+    }
+    return;
+  }
+  const login = username(input.username);
+  const duplicate = checked(
+    await service
+      .from("oss_profiles")
+      .select("id")
+      .eq("username", login)
+      .maybeSingle(),
+  );
+  if (duplicate) throw new PortalError("ชื่อผู้ใช้นี้ถูกใช้แล้ว", 409);
+  const created = await service.auth.admin.createUser({
+    email: loginEmail(login),
+    password,
+    email_confirm: true,
+  });
+  if (created.error)
+    throw new PortalError(
+      "สร้างบัญชีผู้ดูแลไม่สำเร็จ กรุณาตรวจสอบชื่อผู้ใช้",
+      400,
+    );
+  const result = await service
+    .from("oss_profiles")
+    .insert({
+      id: created.data.user.id,
+      role: "admin",
+      username: login,
+      company: name,
+      active: true,
+    });
+  if (result.error) {
+    await service.auth.admin.deleteUser(created.data.user.id);
+    checked(result);
+  }
+}
 export async function execute(
   op,
   client,
@@ -154,6 +234,27 @@ export async function execute(
   serviceFactory = serviceClient,
 ) {
   requireAdmin(profile);
+  if (op === "admin-save") {
+    await saveAdmin(serviceFactory(), input);
+    return;
+  }
+  if (op === "admin-active") {
+    if (typeof input.active !== "boolean")
+      throw new PortalError("กรุณาระบุสถานะบัญชี");
+    const result = await serviceFactory().rpc("oss_set_admin_active", {
+      actor_id: profile.id,
+      target_id: uuid(input.id),
+      enabled: input.active,
+    });
+    if (result.error)
+      throw new PortalError(
+        result.error.code === "P0001"
+          ? result.error.message
+          : "เปลี่ยนสถานะไม่สำเร็จ กรุณาลองใหม่",
+        409,
+      );
+    return;
+  }
   if (op === "account-save") {
     await saveAccount(serviceFactory(), input);
     return;

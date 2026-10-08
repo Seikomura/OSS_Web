@@ -132,3 +132,63 @@ test("database isolates clients, denies client writes, and revokes inactive acco
     await db.close();
   }
 });
+
+test("admin status guard preserves the last admin and checks actor and execution privileges", async () => {
+  const db = new PGlite();
+  const a = "11111111-1111-4111-8111-111111111111",
+    b = "22222222-2222-4222-8222-222222222222";
+  try {
+    await db.exec(
+      "create role anon;create role authenticated;create role service_role;create table oss_profiles(id uuid primary key,role text,active boolean,archived_at timestamptz);",
+    );
+    await db.exec(
+      await readFile(
+        new URL(
+          "../supabase/migrations/20261008170510_admin_management.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    await db.query("insert into oss_profiles values($1,'admin',true,null)", [
+      a,
+    ]);
+    await assert.rejects(
+      db.query("select oss_set_admin_active($1,$1,false)", [a]),
+      /คนสุดท้าย/,
+    );
+    await db.query("insert into oss_profiles values($1,'admin',true,null)", [
+      b,
+    ]);
+    await assert.rejects(
+      db.query("select oss_set_admin_active($1,$1,false)", [a]),
+      /ใช้งานอยู่/,
+    );
+    await db.query("select oss_set_admin_active($1,$2,false)", [a, b]);
+    await assert.rejects(
+      db.query("select oss_set_admin_active($1,$2,false)", [b, a]),
+      /เปิดใช้งาน/,
+    );
+    assert.equal(
+      (
+        await db.query(
+          "select count(*)::int as n from oss_profiles where active",
+        )
+      ).rows[0].n,
+      1,
+    );
+    await db.query("select oss_set_admin_active($1,$2,true)", [a, b]);
+    assert.equal(
+      (await db.query("select active from oss_profiles where id=$1", [b]))
+        .rows[0].active,
+      true,
+    );
+    await db.exec("set role authenticated");
+    await assert.rejects(
+      db.query("select oss_set_admin_active($1,$2,false)", [a, b]),
+      /permission denied/,
+    );
+  } finally {
+    await db.close();
+  }
+});

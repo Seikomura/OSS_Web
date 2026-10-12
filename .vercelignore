@@ -1,0 +1,11 @@
+node_modules/
+build/
+dist/
+work/
+outputs/
+.env
+.env.*
+tests/
+scripts/
+docs/
+supabase/

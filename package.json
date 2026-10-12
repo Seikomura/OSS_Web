@@ -1,14 +1,24 @@
 {
-  "name": "oss-client-portal-demo",
+  "name": "oss-client-portal",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "OSS customer work tracking design and workflow demo",
+  "description": "OSS customer portal with Supabase Auth and shared work tracking",
   "scripts": {
-    "test": "node tests/account-save.test.mjs",
-    "test:data": "node tests/data.test.mjs"
+    "test": "node --test tests/server.test.mjs tests/rls.test.mjs tests/frontend.test.mjs",
+    "test:data": "node tests/data.test.mjs",
+    "build": "vite build",
+    "dev": "node --env-file=.env.local scripts/dev.mjs",
+    "test:demo": "node tests/account-save.test.mjs",
+    "test:live": "node --env-file=.env.local scripts/verify-live.mjs"
   },
   "devDependencies": {
-    "jsdom": "30.1.1"
+    "@electric-sql/pglite": "0.5.8",
+    "jsdom": "30.1.1",
+    "vite": "8.3.3"
+  },
+  "dependencies": {
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.117.2"
   }
 }
